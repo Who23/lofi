@@ -21,10 +21,13 @@ use std::process::{Command, Stdio};
 
 fn main() {
     let device = rodio::default_output_device().unwrap();
-    let sink = Sink::new(&device);
+    let mut sink = Sink::new(&device);
 
     let file = File::open("./music/playing.mp3").unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+
+    // are we at playing.mp3 or prev.mp3
+    let mut at_playing_song = true;
 
     println!("\rplaying song.mp3...");
 
@@ -41,6 +44,8 @@ fn main() {
             match c.unwrap() {
                 Key::Ctrl('c') => break,
                 Key::Char('k') => tx.send("toggle").unwrap(),
+                Key::Char('j') => tx.send("previous").unwrap(),
+                Key::Char('l') => tx.send("next").unwrap(),
                 _ => {},
             }
             stdout.flush().unwrap();
@@ -53,30 +58,58 @@ fn main() {
         if let Ok(data) = rx.try_recv() {
             if data == "kill" {
                 break;
-            }
-            else if data == "toggle" {
+            } else if data == "toggle" {
+                println!("\rtoggling");
                 if sink.is_paused() {
                     sink.play();
                 } else {
                     sink.pause();
                 }
+            } else if data == "previous" {
+                println!("\rgoin previous");
+                sink = add_music(sink, String::from("./music/prev.mp3"), true);
+            } else if data == "next" {
+                println!("\rgoin next");
+                sink = add_music(sink, String::from("./music/next.mp3"), true);
             }
         }
 
         if sink.empty() {
-            println!("\rPlaying next track...");
-        
-            let file = File::open("./music/next.mp3").unwrap();
-            let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
-            sink.append(source);
+            println!("playing next track...");
+            sink = add_music(sink, String::from("./music/next.mp3"), false);
+            
 
-            Command::new("./src/cycle_songs.sh")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
+            // Command::new("./src/cycle_songs.sh")
+            //     .stdout(Stdio::null())
+            //     .stderr(Stdio::null())
+            //     .spawn()
+            //     .unwrap()
+            //     .wait()
+            //     .unwrap();
         }
-
-        thread::sleep(Duration::from_millis(500));
     }
+}
+
+
+fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
+    let file = File::open(file_path).unwrap();
+    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+
+    if reset {
+        // if a sink is stopped, it cannot be restarted
+        // a new sink needs to be created in order to be usable
+        // a little annoying, but it's the cleanest solution
+        sink.stop();
+
+        let device = rodio::default_output_device().unwrap();
+        let new_sink = Sink::new(&device);
+        new_sink.append(source);
+
+        new_sink
+    } else {
+        sink.append(source);
+
+        sink
+    }
+    
 }
