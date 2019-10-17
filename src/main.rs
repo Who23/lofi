@@ -1,8 +1,8 @@
-//TODO: do proper error handling
-//TODO: use proper paths
-//TODO: add next/previous buttons
-//TODO: Refactor/clean code
-//TODO: Add comments
+// TODO: do proper error handling
+// TODO: use proper paths
+// TODO: Refactor/clean code
+// TODO: Add comments
+// TODO: Make sure you cannot skip when next.mp3 is downloading
 
 use std::fs::File;
 use std::io::{self, BufReader, Write};
@@ -66,26 +66,25 @@ fn main() {
                     sink.pause();
                 }
             } else if data == "previous" {
-                println!("\rgoin previous");
-                sink = add_music(sink, String::from("./music/prev.mp3"), true);
+                if at_playing_song {
+                    sink = add_music(sink, String::from("./music/prev.mp3"), true);
+                    at_playing_song = false;
+                }
             } else if data == "next" {
-                println!("\rgoin next");
-                sink = add_music(sink, String::from("./music/next.mp3"), true);
+                if at_playing_song {
+                    sink = add_music(sink, String::from("./music/next.mp3"), true);
+                    cycle_songs();
+                } else {
+                    sink = add_music(sink, String::from("./music/playing.mp3"), true);
+                    at_playing_song = true;
+                }
             }
         }
 
         if sink.empty() {
-            println!("playing next track...");
+            // if the music finishes without skipping
             sink = add_music(sink, String::from("./music/next.mp3"), false);
-            
-
-            // Command::new("./src/cycle_songs.sh")
-            //     .stdout(Stdio::null())
-            //     .stderr(Stdio::null())
-            //     .spawn()
-            //     .unwrap()
-            //     .wait()
-            //     .unwrap();
+            cycle_songs();
         }
     }
 }
@@ -112,4 +111,14 @@ fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
         sink
     }
     
+}
+
+fn cycle_songs() {
+    Command::new("./src/cycle_songs.sh")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
 }
