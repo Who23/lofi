@@ -2,13 +2,13 @@
 // TODO: use proper paths
 // TODO: Refactor/clean code
 // TODO: Add comments
+// TODO: Get name/artist from title
 // TODO: Make sure you cannot skip when next.mp3 is downloading
 
 use std::fs::File;
 use std::io::{self, BufReader, Write};
 
 use rodio::Sink;
-use rodio::source::Source;
 
 use termion::raw::IntoRawMode;
 use termion::event::Key;
@@ -16,7 +16,6 @@ use termion::input::TermRead;
 
 use std::thread;
 use std::sync::mpsc;
-use std::time::Duration;
 use std::process::{Command, Stdio};
 
 fn main() {
@@ -26,12 +25,14 @@ fn main() {
     let file = File::open("./music/playing.mp3").unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
 
-    // are we at playing.mp3 or prev.mp3
-    let mut at_playing_song = true;
-
-    println!("\rplaying song.mp3...");
-
     sink.append(source);
+
+    let mut state = State {
+        is_playing: true,
+        at_playing_song: true,
+        can_skip: true
+    };
+
 
     let (tx, rx) = mpsc::channel();
 
@@ -54,29 +55,35 @@ fn main() {
         tx.send("kill").unwrap();
     });
 
+    show_tui(&state);
     loop {
         if let Ok(data) = rx.try_recv() {
             if data == "kill" {
                 break;
             } else if data == "toggle" {
-                println!("\rtoggling");
                 if sink.is_paused() {
                     sink.play();
+                    state.is_playing = true;
                 } else {
                     sink.pause();
+                    state.is_playing = false;
                 }
+                show_tui(&state);
             } else if data == "previous" {
-                if at_playing_song {
+                if state.at_playing_song {
                     sink = add_music(sink, String::from("./music/prev.mp3"), true);
-                    at_playing_song = false;
+                    state.at_playing_song = false;
+                    show_tui(&state);
                 }
             } else if data == "next" {
-                if at_playing_song {
+                if state.at_playing_song {
                     sink = add_music(sink, String::from("./music/next.mp3"), true);
                     cycle_songs();
+                    show_tui(&state);
                 } else {
                     sink = add_music(sink, String::from("./music/playing.mp3"), true);
-                    at_playing_song = true;
+                    state.at_playing_song = true;
+                    show_tui(&state);
                 }
             }
         }
@@ -87,6 +94,7 @@ fn main() {
             cycle_songs();
         }
     }
+    println!("\n\n")
 }
 
 
@@ -121,4 +129,24 @@ fn cycle_songs() {
         .unwrap()
         .wait()
         .unwrap();
+}
+
+fn show_tui(state: &State) {
+
+    let prev_symbol = if state.at_playing_song { "\u{f04a}" } else { " " };
+    let play_pause_symbol = if state.is_playing { "\u{f04c}" } else { "\u{f04b}" };
+    let next_symbol = if state.can_skip { "\u{f04e}" } else { " " };
+
+    //print tui
+    print!("\n\r");
+    print!("{}\t\t{}\t\t{}\n\r", prev_symbol, play_pause_symbol, next_symbol);
+
+    // move cursor back up
+    print!("\u{001b}[2A");
+}
+
+struct State {
+    is_playing: bool,
+    at_playing_song: bool,  // are we at playing.mp3 or prev.mp3
+    can_skip: bool,         // so that we cannot skip while next.mp3 downloads
 }
