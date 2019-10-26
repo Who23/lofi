@@ -1,5 +1,6 @@
 /target
 **/*.rs.bk
 *.mp3
+*.log
 
 Cargo.lock

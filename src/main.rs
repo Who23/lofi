@@ -16,6 +16,7 @@ use termion::input::TermRead;
 
 use std::thread;
 use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::process::{Command, Stdio};
 
 fn main() {
@@ -35,6 +36,7 @@ fn main() {
 
 
     let (tx, rx) = mpsc::channel();
+    let tx1 = mpsc::Sender::clone(&tx);     // for the cycle_songs thread
 
     // set up user input thread
     thread::spawn(move || {
@@ -76,22 +78,27 @@ fn main() {
                     show_tui(&state);
                 }
             } else if data == "next" {
-                if state.at_playing_song {
+                if state.at_playing_song && state.can_skip {
                     sink = add_music(sink, String::from("./music/next.mp3"), true);
-                    cycle_songs();
+                    state.can_skip = false;
+                    cycle_songs(&tx1);
                     show_tui(&state);
                 } else {
                     sink = add_music(sink, String::from("./music/playing.mp3"), true);
                     state.at_playing_song = true;
                     show_tui(&state);
                 }
+            } else if data == "cycle_finished" {
+                state.can_skip = true;
+                show_tui(&state);
             }
         }
 
         if sink.empty() {
             // if the music finishes without skipping
             sink = add_music(sink, String::from("./music/next.mp3"), false);
-            cycle_songs();
+            state.can_skip = false;
+            cycle_songs(&tx1);
         }
     }
     println!("\n\n")
@@ -121,14 +128,19 @@ fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
     
 }
 
-fn cycle_songs() {
-    Command::new("./src/cycle_songs.sh")
+fn cycle_songs(tx: &Sender<&'static str>) {
+    let tx1 = mpsc::Sender::clone(tx);
+    thread::spawn(move || {
+        Command::new("./src/cycle_songs.sh")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .unwrap()
         .wait()
         .unwrap();
+
+        tx1.send("cycle_finished").unwrap();
+    });
 }
 
 fn show_tui(state: &State) {
