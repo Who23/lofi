@@ -3,7 +3,12 @@
 // TODO: Refactor/clean code
 // TODO: Add comments
 // TODO: Get name/artist from title
-// TODO: Make sure you cannot skip when next.mp3 is downloading
+// TODO: Download .wav so duration is accessible
+// TODO: Daemonize by writing .service (systemctl) and .plist (launchctl)
+// files. Also listen on socket for commands. 
+    // https://doc.rust-lang.org/1.12.1/std/env/fn.current_dir.html
+    // https://doc.rust-lang.org/std/net/struct.UdpSocket.html
+    // https://doc.rust-lang.org/std/net/struct.TcpStream.html
 
 use std::fs::File;
 use std::io::{self, BufReader, Write};
@@ -17,9 +22,13 @@ use termion::input::TermRead;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use std::process::{Command, Stdio};
+
+use std::process::{self, Command, Stdio};
+use std::env::{self, Args};
 
 fn main() {
+    let config = Config::new(env::args());
+
     let device = rodio::default_output_device().unwrap();
     let mut sink = Sink::new(&device);
 
@@ -161,4 +170,73 @@ struct State {
     is_playing: bool,
     at_playing_song: bool,  // are we at playing.mp3 or prev.mp3
     can_skip: bool,         // so that we cannot skip while next.mp3 downloads
+}
+
+#[derive(Debug)]
+struct Config {
+    daemon : Flags,
+    message : Flags,
+}
+
+impl Config {
+    fn new(mut args: Args) -> Config {
+
+        let mut config = Config {
+            daemon : Flags::Daemon(false),
+            message : Flags::Message(Message::NoMessage),
+        };
+
+        // As far as I know, can't use a for loop here as args would
+        // be borrowed. Matches arguments till iterator is exhausted.
+
+        // Start from index two, as one is useless
+        args.next();
+        loop {
+            let arg = args.next();
+
+            if arg == None { break }
+
+            match arg.unwrap().as_ref() {
+                "-d" => (config.daemon = Flags::Daemon(true)),
+                "-m" => (config.message = Flags::Message({
+                    if let Some(message_arg) = args.next() { 
+                        match message_arg.as_ref() {
+                            "next" => Message::Next,
+                            "previous" => Message::Previous,
+                            "toggle" => Message::Toggle,
+                            _ => {
+                                eprintln!("Config Parser Failed: Invalid Message Given!");
+                                process::exit(1);
+                            },
+                        }
+                    } else {
+                        eprintln!("Config Parser Failed: No Message Given!");
+                        process::exit(1);
+                    }
+                })),
+                something => {
+                    eprintln!("Config Parser Failed: Unrecognized Flag: {}!", something);
+                    process::exit(1);
+                },
+
+            }
+        }
+
+        config
+    }
+
+}
+
+#[derive(Debug)]
+enum Flags {
+    Daemon(bool),
+    Message(Message),
+}
+
+#[derive(Debug)]
+enum Message {
+    Next,
+    Previous,
+    Toggle,
+    NoMessage
 }
