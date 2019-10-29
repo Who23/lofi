@@ -4,6 +4,9 @@
 // TODO: Add comments
 // TODO: Get name/artist from title
 // TODO: Download .wav so duration is accessible
+// TODO: Add ability to adjust volume
+// FIXME: Process::exit causes no destructors, so it will not shutdown cleanly.
+// Propogate Error and extract main function.
 // TODO: Daemonize by writing .service (systemctl) and .plist (launchctl)
 // files. Also listen on socket for commands. 
     // https://doc.rust-lang.org/1.12.1/std/env/fn.current_dir.html
@@ -174,16 +177,16 @@ struct State {
 
 #[derive(Debug)]
 struct Config {
-    daemon : Flags,
-    message : Flags,
+    daemon : bool,
+    message : Message,
 }
 
 impl Config {
     fn new(mut args: Args) -> Config {
 
         let mut config = Config {
-            daemon : Flags::Daemon(false),
-            message : Flags::Message(Message::NoMessage),
+            daemon : false,
+            message : Message::NoMessage,
         };
 
         // As far as I know, can't use a for loop here as args would
@@ -197,8 +200,8 @@ impl Config {
             if arg == None { break }
 
             match arg.unwrap().as_ref() {
-                "-d" => (config.daemon = Flags::Daemon(true)),
-                "-m" => (config.message = Flags::Message({
+                "-d" => (config.daemon = true),
+                "-m" => (config.message = {
                     if let Some(message_arg) = args.next() { 
                         match message_arg.as_ref() {
                             "next" => Message::Next,
@@ -213,9 +216,9 @@ impl Config {
                         eprintln!("Config Parser Failed: No Message Given!");
                         process::exit(1);
                     }
-                })),
-                something => {
-                    eprintln!("Config Parser Failed: Unrecognized Flag: {}!", something);
+                }),
+                other_flag => {
+                    eprintln!("Config Parser Failed: Unrecognized Flag: {}!", other_flag);
                     process::exit(1);
                 },
 
@@ -228,15 +231,30 @@ impl Config {
 }
 
 #[derive(Debug)]
-enum Flags {
-    Daemon(bool),
-    Message(Message),
-}
-
-#[derive(Debug)]
 enum Message {
     Next,
     Previous,
     Toggle,
     NoMessage
+}
+
+impl Message {
+    fn encode(&self) -> i32 {
+        match self {
+            Message::Next => 3,
+            Message::Toggle => 2,
+            Message::Previous => 1,
+            Message::NoMessage => 0,
+        }
+    }
+
+    fn decode(number: i32) -> Message {
+        match number {
+            3 => Message::Next,
+            2 => Message::Toggle,
+            1 => Message::Previous,
+            0 => Message::NoMessage,
+            s => (panic!("Not a valid message code: {}!", s))
+        }
+    }
 }
