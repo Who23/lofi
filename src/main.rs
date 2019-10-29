@@ -48,26 +48,12 @@ fn main() {
 
 
     let (tx, rx) = mpsc::channel();
-    let tx1 = mpsc::Sender::clone(&tx);     // for the cycle_songs thread
+
+    // for the cycle_songs thread
+    let tx1 = mpsc::Sender::clone(&tx);
 
     // set up user input thread
-    thread::spawn(move || {
-        let stdin = io::stdin();
-        let mut stdout = io::stdout().into_raw_mode().unwrap();
-
-        for c in stdin.keys() {
-            match c.unwrap() {
-                Key::Ctrl('c') => break,
-                Key::Char('k') => tx.send("toggle").unwrap(),
-                Key::Char('j') => tx.send("previous").unwrap(),
-                Key::Char('l') => tx.send("next").unwrap(),
-                _ => {},
-            }
-            stdout.flush().unwrap();
-        }
-
-        tx.send("kill").unwrap();
-    });
+    spawn_input(tx);
 
     show_tui(&state);
     loop {
@@ -86,17 +72,20 @@ fn main() {
             } else if data == "previous" {
                 if state.at_playing_song {
                     sink = add_music(sink, String::from("./music/prev.mp3"), true);
+                    if !state.is_playing { sink.pause(); }
                     state.at_playing_song = false;
                     show_tui(&state);
                 }
             } else if data == "next" {
                 if state.at_playing_song && state.can_skip {
                     sink = add_music(sink, String::from("./music/next.mp3"), true);
+                    if !state.is_playing { sink.pause(); }
                     state.can_skip = false;
                     cycle_songs(&tx1);
                     show_tui(&state);
                 } else {
                     sink = add_music(sink, String::from("./music/playing.mp3"), true);
+                    if !state.is_playing { sink.pause(); }
                     state.at_playing_song = true;
                     show_tui(&state);
                 }
@@ -140,6 +129,7 @@ fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
     
 }
 
+// how to do this with generics?
 fn cycle_songs(tx: &Sender<&'static str>) {
     let tx1 = mpsc::Sender::clone(tx);
     thread::spawn(move || {
@@ -167,6 +157,27 @@ fn show_tui(state: &State) {
 
     // move cursor back up
     print!("\u{001b}[2A");
+}
+
+// how to do this with generics?
+fn spawn_input(tx: Sender<&'static str>) {
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        let mut stdout = io::stdout().into_raw_mode().unwrap();
+
+        for c in stdin.keys() {
+            match c.unwrap() {
+                Key::Ctrl('c') => break,
+                Key::Char('k') => tx.send("toggle").unwrap(),
+                Key::Char('j') => tx.send("previous").unwrap(),
+                Key::Char('l') => tx.send("next").unwrap(),
+                _ => {},
+            }
+            stdout.flush().unwrap();
+        }
+
+        tx.send("kill").unwrap();
+    });
 }
 
 struct State {
