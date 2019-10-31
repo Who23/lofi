@@ -7,6 +7,8 @@
 // TODO: Add ability to adjust volume
 // FIXME: Process::exit causes no destructors, so it will not shutdown cleanly.
 // Propogate Error and extract main function.
+// FIXME: Make sure files are all present when calling (next.mp3, playing.mp3, etc.)
+// FIXME: When preving right after nexting, next button disappears even though you can still skip fine
 // TODO: Daemonize by writing .service (systemctl) and .plist (launchctl)
 // files. Also listen on socket for commands. 
     // https://doc.rust-lang.org/1.12.1/std/env/fn.current_dir.html
@@ -53,48 +55,55 @@ fn main() {
     let tx1 = mpsc::Sender::clone(&tx);
 
     // set up user input thread
-    spawn_input(tx);
+    spawn_input(tx, &config);
 
     show_tui(&state);
     loop {
         if let Ok(data) = rx.try_recv() {
-            if data == "kill" {
-                break;
-            } else if data == "toggle" {
-                if sink.is_paused() {
-                    sink.play();
-                    state.is_playing = true;
-                } else {
-                    sink.pause();
-                    state.is_playing = false;
-                }
-                show_tui(&state);
-            } else if data == "previous" {
-                if state.at_playing_song {
-                    sink = add_music(sink, String::from("./music/prev.mp3"), true);
-                    if !state.is_playing { sink.pause(); }
-                    state.at_playing_song = false;
+            match data {
+                Message::Quit => {
+                    break;
+                },
+                Message::Toggle => {
+                    if sink.is_paused() {
+                        sink.play();
+                        state.is_playing = true;
+                    } else {
+                        sink.pause();
+                        state.is_playing = false;
+                    }
+                    show_tui(&state);
+                },
+                Message::Previous => {
+                    if state.at_playing_song {
+                        sink = add_music(sink, String::from("./music/prev.mp3"), true);
+                        if !state.is_playing { sink.pause(); }
+                        state.at_playing_song = false;
+                        show_tui(&state);
+                    }
+                },
+                Message::Next => {
+                    if state.at_playing_song && state.can_skip {
+                        sink = add_music(sink, String::from("./music/next.mp3"), true);
+                        if !state.is_playing { sink.pause(); }
+                        state.can_skip = false;
+                        cycle_songs(&tx1);
+                        show_tui(&state);
+                    } else {
+                        sink = add_music(sink, String::from("./music/playing.mp3"), true);
+                        if !state.is_playing { sink.pause(); }
+                        state.at_playing_song = true;
+                        show_tui(&state);
+                    }
+                },
+                Message::Downloaded => {
+                    state.can_skip = true;
                     show_tui(&state);
                 }
-            } else if data == "next" {
-                if state.at_playing_song && state.can_skip {
-                    sink = add_music(sink, String::from("./music/next.mp3"), true);
-                    if !state.is_playing { sink.pause(); }
-                    state.can_skip = false;
-                    cycle_songs(&tx1);
-                    show_tui(&state);
-                } else {
-                    sink = add_music(sink, String::from("./music/playing.mp3"), true);
-                    if !state.is_playing { sink.pause(); }
-                    state.at_playing_song = true;
-                    show_tui(&state);
-                }
-            } else if data == "cycle_finished" {
-                state.can_skip = true;
-                show_tui(&state);
+                _ => {},
             }
         }
-
+        
         if sink.empty() {
             // if the music finishes without skipping
             sink = add_music(sink, String::from("./music/next.mp3"), false);
@@ -130,7 +139,7 @@ fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
 }
 
 // how to do this with generics?
-fn cycle_songs(tx: &Sender<&'static str>) {
+fn cycle_songs(tx: &Sender<Message>) {
     let tx1 = mpsc::Sender::clone(tx);
     thread::spawn(move || {
         Command::new("./src/cycle_songs.sh")
@@ -141,7 +150,7 @@ fn cycle_songs(tx: &Sender<&'static str>) {
         .wait()
         .unwrap();
 
-        tx1.send("cycle_finished").unwrap();
+        tx1.send(Message::Downloaded).unwrap();
     });
 }
 
@@ -160,24 +169,30 @@ fn show_tui(state: &State) {
 }
 
 // how to do this with generics?
-fn spawn_input(tx: Sender<&'static str>) {
-    thread::spawn(move || {
-        let stdin = io::stdin();
-        let mut stdout = io::stdout().into_raw_mode().unwrap();
+fn spawn_input(tx: Sender<Message>, config: &Config) {
+    if config.daemon {
+        //TODO Implement
+    } else {
+        // get input from terminal
+        thread::spawn(move || {
+            let stdin = io::stdin();
+            let mut stdout = io::stdout().into_raw_mode().unwrap();
 
-        for c in stdin.keys() {
-            match c.unwrap() {
-                Key::Ctrl('c') => break,
-                Key::Char('k') => tx.send("toggle").unwrap(),
-                Key::Char('j') => tx.send("previous").unwrap(),
-                Key::Char('l') => tx.send("next").unwrap(),
-                _ => {},
+            for c in stdin.keys() {
+                match c.unwrap() {
+                    Key::Ctrl('c') => break,
+                    Key::Char('k') => tx.send(Message::Toggle).unwrap(),
+                    Key::Char('j') => tx.send(Message::Previous).unwrap(),
+                    Key::Char('l') => tx.send(Message::Next).unwrap(),
+                    _ => {},
+                }
+                stdout.flush().unwrap();
             }
-            stdout.flush().unwrap();
-        }
 
-        tx.send("kill").unwrap();
-    });
+            tx.send(Message::Quit).unwrap();
+        });
+    }
+    
 }
 
 struct State {
@@ -243,6 +258,8 @@ impl Config {
 
 #[derive(Debug)]
 enum Message {
+    Downloaded,
+    Quit,
     Next,
     Previous,
     Toggle,
@@ -252,6 +269,8 @@ enum Message {
 impl Message {
     fn encode(&self) -> i32 {
         match self {
+            Message::Downloaded => 5,
+            Message::Quit => 4,
             Message::Next => 3,
             Message::Toggle => 2,
             Message::Previous => 1,
@@ -261,6 +280,8 @@ impl Message {
 
     fn decode(number: i32) -> Message {
         match number {
+            5 => Message::Downloaded,
+            4 => Message::Quit,
             3 => Message::Next,
             2 => Message::Toggle,
             1 => Message::Previous,
