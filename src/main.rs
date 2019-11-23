@@ -28,12 +28,23 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
+use std::net::UdpSocket;
 use std::process::{self, Command, Stdio};
 use std::env::{self, Args};
 
 fn main() {
     let config = Config::new(env::args());
 
+    if let Message::NoMessage = config.message {
+        run(config);
+    } else {
+        send_message(config.message);
+    }
+
+}
+
+
+fn run(config: Config) {
     let device = rodio::default_output_device().unwrap();
     let mut sink = Sink::new(&device);
 
@@ -114,6 +125,14 @@ fn main() {
     println!("\n\n")
 }
 
+fn send_message(message: Message) {
+    let socket = UdpSocket::bind("127.0.0.1:34255").expect("couldn't bind to address");
+    socket.connect("127.0.0.1:31165").expect("connect function failed");
+
+
+    socket.send(&[message.encode() as u8]).expect("couldn't send message");
+}
+
 
 fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
     let file = File::open(file_path).unwrap();
@@ -171,9 +190,21 @@ fn show_tui(state: &State) {
 // how to do this with generics?
 fn spawn_input(tx: Sender<Message>, config: &Config) {
     if config.daemon {
-        //TODO Implement
+        // get input using messages sent to open socket
+
+        thread::spawn(move || {
+            let socket = UdpSocket::bind("127.0.0.1:31165").expect("couldn't bind to address");
+            let mut buf = [0];
+            loop {
+                let (number_of_bytes, src_addr) = socket.recv_from(&mut buf)
+                                                        .expect("Didn't receive data");
+                tx.send(Message::decode(buf[0] as i32)).unwrap(); 
+            }
+        });
+
     } else {
         // get input from terminal
+        
         thread::spawn(move || {
             let stdin = io::stdin();
             let mut stdout = io::stdout().into_raw_mode().unwrap();
@@ -192,7 +223,6 @@ fn spawn_input(tx: Sender<Message>, config: &Config) {
             tx.send(Message::Quit).unwrap();
         });
     }
-    
 }
 
 struct State {
@@ -233,6 +263,7 @@ impl Config {
                             "next" => Message::Next,
                             "previous" => Message::Previous,
                             "toggle" => Message::Toggle,
+                            "quit" => Message::Quit,
                             _ => {
                                 eprintln!("Config Parser Failed: Invalid Message Given!");
                                 process::exit(1);
