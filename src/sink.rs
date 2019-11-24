@@ -1,22 +1,30 @@
+/// A modified version of the sink provided by the rodio library.
+/// According to https://github.com/RustAudio/rodio/issues/171#issuecomment-428978474
+/// The sink should be modified, and it was also the only way I could get
+/// the sink to sleep another thread.
+
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::mpsc::Receiver;
+use std::thread;
+use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use play_raw;
-use queue;
-use source::Done;
-use Device;
-use Sample;
-use Source;
+use rodio::play_raw;
+use rodio::queue;
+use rodio::source::Done;
+use rodio::Device;
+use rodio::Sample;
+use rodio::Source;
+
+use crate::Message;
 
 /// Handle to an device that outputs sounds.
 ///
-/// Dropping the `Sink` stops all sounds. You can use `detach` if you want the sounds to continue
+/// Dropping the `LofiSink` stops all sounds. You can use `detach` if you want the sounds to continue
 /// playing.
-pub struct Sink {
+pub struct LofiSink {
     queue_tx: Arc<queue::SourcesQueueInput<f32>>,
     sleep_until_end: Mutex<Option<Receiver<()>>>,
 
@@ -32,21 +40,21 @@ struct Controls {
     stopped: AtomicBool,
 }
 
-impl Sink {
-    /// Builds a new `Sink`, beginning playback on a Device.
+impl LofiSink {
+    /// Builds a new `LofiSink`, beginning playback on a Device.
     #[inline]
-    pub fn new(device: &Device) -> Sink {
-        let (sink, queue_rx) = Sink::new_idle();
+    pub fn new(device: &Device) -> LofiSink {
+        let (sink, queue_rx) = LofiSink::new_idle();
         play_raw(device, queue_rx);
         sink
     }
 
-    /// Builds a new `Sink`.
+    /// Builds a new `LofiSink`.
     #[inline]
-    pub fn new_idle() -> (Sink, queue::SourcesQueueOutput<f32>) {
+    pub fn new_idle() -> (LofiSink, queue::SourcesQueueOutput<f32>) {
         let (queue_tx, queue_rx) = queue::queue(true);
 
-        let sink = Sink {
+        let sink = LofiSink {
             queue_tx: queue_tx,
             sleep_until_end: Mutex::new(None),
             controls: Arc::new(Controls {
@@ -127,7 +135,7 @@ impl Sink {
 
     /// Gets if a sink is paused
     ///
-    /// Sinks can be paused and resumed using `pause()` and `play()`. This returns `true` if the
+    /// LofiSinks can be paused and resumed using `pause()` and `play()`. This returns `true` if the
     /// sink is paused.
     pub fn is_paused(&self) -> bool {
         self.controls.pause.load(Ordering::SeqCst)
@@ -153,6 +161,18 @@ impl Sink {
         }
     }
 
+    /// Spawns a new thread to sleep until the sound ends, and then sends the SoundEnded
+    /// message through the given Sender.
+    pub fn message_on_end(&self, tx: &Sender<Message>) {
+        let tx1 = mpsc::Sender::clone(&tx);
+        if let Some(sleep_until_end) = self.sleep_until_end.lock().unwrap().take() {
+            thread::spawn(move || {
+                let _ = sleep_until_end.recv();
+                tx1.send(Message::SoundEnded).unwrap();
+            });
+        }
+    }
+
     /// Returns true if this sink has no more sounds to play.
     #[inline]
     pub fn empty(&self) -> bool {
@@ -166,7 +186,7 @@ impl Sink {
     }
 }
 
-impl Drop for Sink {
+impl Drop for LofiSink {
     #[inline]
     fn drop(&mut self) {
         self.queue_tx.set_keep_alive_if_empty(false);
@@ -182,11 +202,11 @@ impl Drop for Sink {
 mod tests {
     use buffer::SamplesBuffer;
     use source::Source;
-    use sink::Sink;
+    use sink::LofiLofiSink;
 
     #[test]
     fn test_pause_and_stop() {
-        let (sink, mut queue_rx) = Sink::new_idle();
+        let (sink, mut queue_rx) = LofiSink::new_idle();
 
         // assert_eq!(queue_rx.next(), Some(0.0));
 
@@ -217,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_volume() {
-        let (sink, mut queue_rx) = Sink::new_idle();
+        let (sink, mut queue_rx) = LofiSink::new_idle();
 
         let v = vec![10i16, -10, 20, -20, 30, -30];
 

@@ -1,7 +1,9 @@
+mod sink;
+
 use std::fs::File;
 use std::io::{self, BufReader, Write};
 
-use rodio::Sink;
+use sink::LofiSink;
 
 use termion::raw::IntoRawMode;
 use termion::event::Key;
@@ -25,7 +27,7 @@ pub fn run(config: Config) {
 
 fn play_music(config: Config) {
     let device = rodio::default_output_device().unwrap();
-    let mut sink = Sink::new(&device);
+    let mut sink = LofiSink::new(&device);
 
     let file = File::open("./music/playing.mp3").unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
@@ -41,15 +43,18 @@ fn play_music(config: Config) {
 
     let (tx, rx) = mpsc::channel();
 
-    // for the cycle_songs thread
+    // for the cycle_songs thread, and the message_on_end thread
     let tx1 = mpsc::Sender::clone(&tx);
+    let tx2 = mpsc::Sender::clone(&tx);
 
     // set up user input thread
     spawn_input(tx, &config);
 
+    sink.message_on_end(&tx2);
+
     show_tui(&state);
     loop {
-        if let Ok(data) = rx.try_recv() {
+        if let Ok(data) = rx.recv() {
             match data {
                 Message::Quit => {
                     break;
@@ -67,18 +72,33 @@ fn play_music(config: Config) {
                 Message::Previous => {
                     if state.at_playing_song {
                         sink = add_music(sink, String::from("./music/prev.mp3"), true);
+
                         if !state.is_playing { sink.pause(); }
                         state.at_playing_song = false;
                         show_tui(&state);
+
+
+                        // this rids the rx of the next value, which would always be a SoundEnded
+                        // message. It would cycle the songs, so we prevent this.
+                        // Needs to be be at the end of this block or the tui, state, etc, don't update??
+                        rx.recv().unwrap();
                     }
                 },
                 Message::Next => {
+            
                     if state.at_playing_song && state.can_skip {
                         sink = add_music(sink, String::from("./music/next.mp3"), true);
+                        
                         if !state.is_playing { sink.pause(); }
                         state.can_skip = false;
                         cycle_songs(&tx1);
                         show_tui(&state);
+
+                        // this rids the rx of the next value, which would always be a SoundEnded
+                        // message. It would cycle the songs, so we prevent this.
+                        // Needs to be be at the end of this block or the tui, state, etc, don't update??
+                        rx.recv().unwrap();
+                        
                     } else {
                         sink = add_music(sink, String::from("./music/playing.mp3"), true);
                         if !state.is_playing { sink.pause(); }
@@ -90,15 +110,20 @@ fn play_music(config: Config) {
                     state.can_skip = true;
                     show_tui(&state);
                 }
+                Message::SoundEnded => {
+                    // if the music finishes without skipping
+                    // this is also triggered if the user skips/prevs the track
+                    // through the cycle_songs function.
+                    println!("Sound Ended... movin on");
+
+                    state.can_skip = false;
+                    sink = add_music(sink, String::from("./music/next.mp3"), false);
+                    
+                    cycle_songs(&tx1);
+                    sink.message_on_end(&tx2);
+                }
                 _ => {},
             }
-        }
-        
-        if sink.empty() {
-            // if the music finishes without skipping
-            sink = add_music(sink, String::from("./music/next.mp3"), false);
-            state.can_skip = false;
-            cycle_songs(&tx1);
         }
     }
     println!("\n\n")
@@ -113,7 +138,7 @@ fn send_message(message: Message) {
 }
 
 
-fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
+fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
     let file = File::open(file_path).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
 
@@ -124,7 +149,7 @@ fn add_music(sink: Sink, file_path: String, reset: bool) -> Sink {
         sink.stop();
 
         let device = rodio::default_output_device().unwrap();
-        let new_sink = Sink::new(&device);
+        let new_sink = LofiSink::new(&device);
         new_sink.append(source);
 
         new_sink
@@ -267,7 +292,8 @@ impl Config {
 }
 
 #[derive(Debug)]
-enum Message {
+pub enum Message {
+    SoundEnded,
     Downloaded,
     Quit,
     Next,
@@ -279,6 +305,7 @@ enum Message {
 impl Message {
     fn encode(&self) -> i32 {
         match self {
+            Message::SoundEnded => 6,
             Message::Downloaded => 5,
             Message::Quit => 4,
             Message::Next => 3,
@@ -290,6 +317,7 @@ impl Message {
 
     fn decode(number: i32) -> Message {
         match number {
+            6 => Message::SoundEnded,
             5 => Message::Downloaded,
             4 => Message::Quit,
             3 => Message::Next,
