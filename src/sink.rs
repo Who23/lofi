@@ -18,7 +18,7 @@ use rodio::Device;
 use rodio::Sample;
 use rodio::Source;
 
-use crate::Message;
+use crate::types::Message;
 
 /// Handle to an device that outputs sounds.
 ///
@@ -98,23 +98,23 @@ impl LofiSink {
         *self.sleep_until_end.lock().unwrap() = Some(self.queue_tx.append_with_signal(source));
     }
 
-    /// Gets the volume of the sound.
-    ///
-    /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than 1.0 will
-    /// multiply each sample by this value.
-    #[inline]
-    pub fn volume(&self) -> f32 {
-        *self.controls.volume.lock().unwrap()
-    }
+    // /// Gets the volume of the sound.
+    // ///
+    // /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than 1.0 will
+    // /// multiply each sample by this value.
+    // #[inline]
+    // pub fn volume(&self) -> f32 {
+    //     *self.controls.volume.lock().unwrap()
+    // }
 
-    /// Changes the volume of the sound.
-    ///
-    /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than `1.0` will
-    /// multiply each sample by this value.
-    #[inline]
-    pub fn set_volume(&self, value: f32) {
-        *self.controls.volume.lock().unwrap() = value;
-    }
+    // /// Changes the volume of the sound.
+    // ///
+    // /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than `1.0` will
+    // /// multiply each sample by this value.
+    // #[inline]
+    // pub fn set_volume(&self, value: f32) {
+    //     *self.controls.volume.lock().unwrap() = value;
+    // }
 
     /// Resumes playback of a paused sink.
     ///
@@ -147,19 +147,19 @@ impl LofiSink {
         self.controls.stopped.store(true, Ordering::SeqCst);
     }
 
-    /// Destroys the sink without stopping the sounds that are still playing.
-    #[inline]
-    pub fn detach(mut self) {
-        self.detached = true;
-    }
+    // /// Destroys the sink without stopping the sounds that are still playing.
+    // #[inline]
+    // pub fn detach(mut self) {
+    //     self.detached = true;
+    // }
 
-    /// Sleeps the current thread until the sound ends.
-    #[inline]
-    pub fn sleep_until_end(&self) {
-        if let Some(sleep_until_end) = self.sleep_until_end.lock().unwrap().take() {
-            let _ = sleep_until_end.recv();
-        }
-    }
+    // /// Sleeps the current thread until the sound ends.
+    // #[inline]
+    // pub fn sleep_until_end(&self) {
+    //     if let Some(sleep_until_end) = self.sleep_until_end.lock().unwrap().take() {
+    //         let _ = sleep_until_end.recv();
+    //     }
+    // }
 
     /// Spawns a new thread to sleep until the sound ends, and then sends the SoundEnded
     /// message through the given Sender.
@@ -173,17 +173,17 @@ impl LofiSink {
         }
     }
 
-    /// Returns true if this sink has no more sounds to play.
-    #[inline]
-    pub fn empty(&self) -> bool {
-        self.len() == 0
-    }
+    // /// Returns true if this sink has no more sounds to play.
+    // #[inline]
+    // pub fn empty(&self) -> bool {
+    //     self.len() == 0
+    // }
 
-    /// Returns the number of sounds currently in the queue.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.sound_count.load(Ordering::Relaxed)
-    }
+    // /// Returns the number of sounds currently in the queue.
+    // #[inline]
+    // pub fn len(&self) -> usize {
+    //     self.sound_count.load(Ordering::Relaxed)
+    // }
 }
 
 impl Drop for LofiSink {

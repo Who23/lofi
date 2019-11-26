@@ -1,21 +1,25 @@
 mod sink;
-
-use std::fs::File;
-use std::io::{self, BufReader, Write};
-
-use sink::LofiSink;
+mod types;
 
 use termion::raw::IntoRawMode;
 use termion::event::Key;
 use termion::input::TermRead;
 
+use std::net::UdpSocket;
+use std::process::{Command, Stdio};
+
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
-use std::env::Args;
-use std::net::UdpSocket;
-use std::process::{self, Command, Stdio};
+use std::fs::File;
+use std::io::{self, BufReader, Write};
+
+use crate::sink::LofiSink;
+use crate::types::{Message, State};
+
+// so that main.rs can get the config
+pub use crate::types::Config;
 
 pub fn run(config: Config) {
     if let Message::NoMessage = config.message {
@@ -25,7 +29,7 @@ pub fn run(config: Config) {
     }
 }
 
-fn play_music(config: Config) {
+pub fn play_music(config: Config) {
     let device = rodio::default_output_device().unwrap();
     let mut sink = LofiSink::new(&device);
 
@@ -80,7 +84,7 @@ fn play_music(config: Config) {
 
                         // this rids the rx of the next value, which would always be a SoundEnded
                         // message. It would cycle the songs, so we prevent this.
-                        // Needs to be be at the end of this block or the tui, state, etc, don't update??
+                        // FIXME: Needs to be be at the end of this block or the tui, state, etc, don't update??
                         rx.recv().unwrap();
                     }
                 },
@@ -96,7 +100,7 @@ fn play_music(config: Config) {
 
                         // this rids the rx of the next value, which would always be a SoundEnded
                         // message. It would cycle the songs, so we prevent this.
-                        // Needs to be be at the end of this block or the tui, state, etc, don't update??
+                        // FIXME: Needs to be be at the end of this block or the tui, state, etc, don't update??
                         rx.recv().unwrap();
                         
                     } else {
@@ -114,7 +118,6 @@ fn play_music(config: Config) {
                     // if the music finishes without skipping
                     // this is also triggered if the user skips/prevs the track
                     // through the cycle_songs function.
-                    println!("Sound Ended... movin on");
 
                     state.can_skip = false;
                     sink = add_music(sink, String::from("./music/next.mp3"), false);
@@ -129,14 +132,13 @@ fn play_music(config: Config) {
     println!("\n\n")
 }
 
-fn send_message(message: Message) {
+pub fn send_message(message: Message) {
     let socket = UdpSocket::bind("127.0.0.1:34255").expect("couldn't bind to address");
     socket.connect("127.0.0.1:31165").expect("connect function failed");
 
 
     socket.send(&[message.encode() as u8]).expect("couldn't send message");
 }
-
 
 fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
     let file = File::open(file_path).unwrap();
@@ -200,7 +202,7 @@ fn spawn_input(tx: Sender<Message>, config: &Config) {
             let socket = UdpSocket::bind("127.0.0.1:31165").expect("couldn't bind to address");
             let mut buf = [0];
             loop {
-                let (number_of_bytes, src_addr) = socket.recv_from(&mut buf)
+                let (_, _) = socket.recv_from(&mut buf)
                                                         .expect("Didn't receive data");
                 tx.send(Message::decode(buf[0] as i32)).unwrap(); 
             }
@@ -228,104 +230,3 @@ fn spawn_input(tx: Sender<Message>, config: &Config) {
         });
     }
 }
-
-struct State {
-    is_playing: bool,
-    at_playing_song: bool,  // are we at playing.mp3 or prev.mp3
-    can_skip: bool,         // so that we cannot skip while next.mp3 downloads
-}
-
-#[derive(Debug)]
-pub struct Config {
-    daemon : bool,
-    message : Message,
-}
-
-impl Config {
-    pub fn new(mut args: Args) -> Config {
-
-        let mut config = Config {
-            daemon : false,
-            message : Message::NoMessage,
-        };
-
-        // As far as I know, can't use a for loop here as args would
-        // be borrowed. Matches arguments till iterator is exhausted.
-
-        // Start from index two, as one is useless
-        args.next();
-        loop {
-            let arg = args.next();
-
-            if arg == None { break }
-
-            match arg.unwrap().as_ref() {
-                "-d" => (config.daemon = true),
-                "-m" => (config.message = {
-                    if let Some(message_arg) = args.next() { 
-                        match message_arg.as_ref() {
-                            "next" => Message::Next,
-                            "previous" => Message::Previous,
-                            "toggle" => Message::Toggle,
-                            "quit" => Message::Quit,
-                            _ => {
-                                eprintln!("Config Parser Failed: Invalid Message Given!");
-                                process::exit(1);
-                            },
-                        }
-                    } else {
-                        eprintln!("Config Parser Failed: No Message Given!");
-                        process::exit(1);
-                    }
-                }),
-                other_flag => {
-                    eprintln!("Config Parser Failed: Unrecognized Flag: {}!", other_flag);
-                    process::exit(1);
-                },
-
-            }
-        }
-
-        config
-    }
-
-}
-
-#[derive(Debug)]
-pub enum Message {
-    SoundEnded,
-    Downloaded,
-    Quit,
-    Next,
-    Previous,
-    Toggle,
-    NoMessage
-}
-
-impl Message {
-    fn encode(&self) -> i32 {
-        match self {
-            Message::SoundEnded => 6,
-            Message::Downloaded => 5,
-            Message::Quit => 4,
-            Message::Next => 3,
-            Message::Toggle => 2,
-            Message::Previous => 1,
-            Message::NoMessage => 0,
-        }
-    }
-
-    fn decode(number: i32) -> Message {
-        match number {
-            6 => Message::SoundEnded,
-            5 => Message::Downloaded,
-            4 => Message::Quit,
-            3 => Message::Next,
-            2 => Message::Toggle,
-            1 => Message::Previous,
-            0 => Message::NoMessage,
-            s => (panic!("Not a valid message code: {}!", s))
-        }
-    }
-}
-
