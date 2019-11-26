@@ -32,10 +32,9 @@ pub fn run(config: Config) {
 pub fn play_music(config: Config) {
     let device = rodio::default_output_device().unwrap();
     let mut sink = LofiSink::new(&device);
-
     let file = File::open("./music/playing.mp3").unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
-
+    
     sink.append(source);
 
     let mut state = State {
@@ -54,6 +53,7 @@ pub fn play_music(config: Config) {
     // set up user input thread
     spawn_input(tx, &config);
 
+    // send a message when the track ends
     sink.message_on_end(&tx2);
 
     show_tui(&state);
@@ -129,7 +129,7 @@ pub fn play_music(config: Config) {
             }
         }
     }
-    println!("\n\n")
+    println!("\n\n");
 }
 
 pub fn send_message(message: Message) {

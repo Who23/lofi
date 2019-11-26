@@ -1,4 +1,3 @@
-use std::process;
 use std::env::Args;
 
 use crate::types::Message;
@@ -10,7 +9,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(mut args: Args) -> Config {
+    pub fn new(mut args: Args) -> Result<Config, &'static str> {
 
         let mut config = Config {
             daemon : false,
@@ -37,23 +36,20 @@ impl Config {
                             "toggle" => Message::Toggle,
                             "quit" => Message::Quit,
                             _ => {
-                                eprintln!("Config Parser Failed: Invalid Message Given!");
-                                process::exit(1);
+                                return Err("Config Parser Failed: Invalid Message Given!")
                             },
                         }
                     } else {
-                        eprintln!("Config Parser Failed: No Message Given!");
-                        process::exit(1);
+                        return Err("Config Parser Failed: No Message Given!")
                     }
                 }),
-                other_flag => {
-                    eprintln!("Config Parser Failed: Unrecognized Flag: {}!", other_flag);
-                    process::exit(1);
+                _ => {
+                    return Err("Config Parser Failed: Unrecognized Flag:")
                 },
 
             }
         }
 
-        config
+        Ok(config)
     }
 }
