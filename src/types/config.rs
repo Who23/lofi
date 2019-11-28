@@ -34,6 +34,8 @@ impl Config {
                             "next" => Message::Next,
                             "previous" => Message::Previous,
                             "toggle" => Message::Toggle,
+                            "volup" => Message::VolUp,
+                            "voldown" => Message::VolDown,
                             "quit" => Message::Quit,
                             _ => {
                                 return Err("Config Parser Failed: Invalid Message Given!")

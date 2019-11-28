@@ -98,23 +98,23 @@ impl LofiSink {
         *self.sleep_until_end.lock().unwrap() = Some(self.queue_tx.append_with_signal(source));
     }
 
-    // /// Gets the volume of the sound.
-    // ///
-    // /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than 1.0 will
-    // /// multiply each sample by this value.
-    // #[inline]
-    // pub fn volume(&self) -> f32 {
-    //     *self.controls.volume.lock().unwrap()
-    // }
+    /// Gets the volume of the sound.
+    ///
+    /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than 1.0 will
+    /// multiply each sample by this value.
+    #[inline]
+    pub fn volume(&self) -> f32 {
+        *self.controls.volume.lock().unwrap()
+    }
 
-    // /// Changes the volume of the sound.
-    // ///
-    // /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than `1.0` will
-    // /// multiply each sample by this value.
-    // #[inline]
-    // pub fn set_volume(&self, value: f32) {
-    //     *self.controls.volume.lock().unwrap() = value;
-    // }
+     /// Changes the volume of the sound.
+     ///
+     /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than `1.0` will
+     /// multiply each sample by this value.
+     #[inline]
+     pub fn set_volume(&self, value: f32) {
+         *self.controls.volume.lock().unwrap() = value;
+     }
 
     /// Resumes playback of a paused sink.
     ///

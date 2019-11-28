@@ -40,7 +40,8 @@ pub fn play_music(config: Config) {
     let mut state = State {
         is_playing: true,
         at_playing_song: true,
-        can_skip: true
+        can_skip: true,
+        volume: 1.0
     };
 
 
@@ -110,6 +111,22 @@ pub fn play_music(config: Config) {
                         show_tui(&state);
                     }
                 },
+                Message::VolDown => {
+                    // obviously, there is no sound at 0.
+                    if state.volume > 0.0 {
+                        state.volume -= 0.1;
+                        sink.set_volume(state.volume);
+                        show_tui(&state);
+                    }
+                }
+                Message::VolUp => {
+                    // the sound gets very crackly at 1.5
+                    if state.volume < 1.4 {
+                        state.volume += 0.1;
+                        sink.set_volume(state.volume);
+                        show_tui(&state);
+                    }
+                }
                 Message::Downloaded => {
                     state.can_skip = true;
                     show_tui(&state);
@@ -184,13 +201,15 @@ fn show_tui(state: &State) {
     let prev_symbol = if state.at_playing_song { "\u{f04a}" } else { " " };
     let play_pause_symbol = if state.is_playing { "\u{f04c}" } else { "\u{f04b}" };
     let next_symbol = if state.can_skip { "\u{f04e}" } else { " " };
+    let vol_slider = format!("{}{}", "#".repeat((state.volume * 10.0) as usize), "-".repeat(14 - ((state.volume * 10.0) as usize)));
 
     //print tui
     print!("\n\r");
-    print!("{}\t\t{}\t\t{}\n\r", prev_symbol, play_pause_symbol, next_symbol);
+    print!("{}        {}        {}\n\r", prev_symbol, play_pause_symbol, next_symbol);
+    print!(" \u{fa80}{}\u{fa7d}\n\r", vol_slider);
 
     // move cursor back up
-    print!("\u{001b}[2A");
+    print!("\r\u{001b}[3A");
 }
 
 // how to do this with generics?
@@ -221,6 +240,8 @@ fn spawn_input(tx: Sender<Message>, config: &Config) {
                     Key::Char('k') => tx.send(Message::Toggle).unwrap(),
                     Key::Char('j') => tx.send(Message::Previous).unwrap(),
                     Key::Char('l') => tx.send(Message::Next).unwrap(),
+                    Key::Char('=') => tx.send(Message::VolUp).unwrap(),
+                    Key::Char('-') => tx.send(Message::VolDown).unwrap(),
                     _ => {},
                 }
                 stdout.flush().unwrap();
