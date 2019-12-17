@@ -1,4 +1,6 @@
-use std::env::Args;
+use std::env::{Args, self};
+use std::fs;
+
 
 use crate::types::Message;
 
@@ -6,6 +8,7 @@ use crate::types::Message;
 pub struct Config {
     pub daemon : bool,
     pub message : Message,
+    pub playlist : String
 }
 
 impl Config {
@@ -14,7 +17,27 @@ impl Config {
         let mut config = Config {
             daemon : false,
             message : Message::NoMessage,
+            playlist : String::from("PL6NdkXsPL07KiewBDpJC1dFvxEubnNOp1")
         };
+
+        // get config items from config file
+        let mut home = env::home_dir().ok_or_else(|| "Could not get home directory")?;
+        home.push(".config");
+        home.push("lofi");
+        home.push("config");
+
+        let config_file = fs::read_to_string(home).unwrap();
+
+        let config_file = config_file.lines()
+                                     .map(|line| line.replace(" ", ""));
+
+        for line in config_file {
+            let line : Vec<&str> = line.split("=").collect();
+            match line[0] {
+                "playlist" => {config.playlist = String::from(line[1]);},
+                _ => (),
+            }
+        }
 
         // As far as I know, can't use a for loop here as args would
         // be borrowed. Matches arguments till iterator is exhausted.
@@ -28,6 +51,7 @@ impl Config {
 
             match arg.unwrap().as_ref() {
                 "-d" => (config.daemon = true),
+                "-p" => (config.playlist = String::from(args.next().unwrap())),
                 "-m" => (config.message = {
                     if let Some(message_arg) = args.next() { 
                         match message_arg.as_ref() {

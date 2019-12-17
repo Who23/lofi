@@ -1,3 +1,8 @@
+// The cycling code is a dumpster fire.
+// it only message_on_end when we need it, which works
+// but it is very confusing. Mixing intercepting and only messaging sometimes
+// stick with one. Make it clear what happens.
+
 mod sink;
 mod types;
 
@@ -23,6 +28,12 @@ pub use crate::types::Config;
 
 pub fn run(config: Config) {
     if let Message::NoMessage = config.message {
+        // calls download.sh. See file for details.
+        Command::new("./src/download.sh")
+            .arg(&config.playlist)
+            .status()
+            .unwrap();
+
         play_music(config);
     } else {
         send_message(config.message);
@@ -30,8 +41,17 @@ pub fn run(config: Config) {
 }
 
 pub fn play_music(config: Config) {
+
+    let (tx, rx) = mpsc::channel();
+
+    // for the cycle_songs thread, the message_on_end thread, and in the Message::Previous block
+    let tx1 = mpsc::Sender::clone(&tx);
+    let tx2 = mpsc::Sender::clone(&tx);
+    let tx3 = mpsc::Sender::clone(&tx);
+
+
     let device = rodio::default_output_device().unwrap();
-    let mut sink = LofiSink::new(&device);
+    let mut sink = LofiSink::new(&device, tx2);
     let file = File::open("./music/playing.mp3").unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
     
@@ -44,18 +64,11 @@ pub fn play_music(config: Config) {
         volume: 1.0
     };
 
-
-    let (tx, rx) = mpsc::channel();
-
-    // for the cycle_songs thread, and the message_on_end thread
-    let tx1 = mpsc::Sender::clone(&tx);
-    let tx2 = mpsc::Sender::clone(&tx);
-
     // set up user input thread
     spawn_input(tx, &config);
 
     // send a message when the track ends
-    sink.message_on_end(&tx2);
+    sink.message_on_end();
 
     show_tui(&state);
     loop {
@@ -76,39 +89,44 @@ pub fn play_music(config: Config) {
                 },
                 Message::Previous => {
                     if state.at_playing_song {
+
                         sink = add_music(sink, String::from("./music/prev.mp3"), true);
 
                         if !state.is_playing { sink.pause(); }
                         state.at_playing_song = false;
                         show_tui(&state);
 
+                        // consume a sound ended message that follows so that it does not download a song.
+                        // TODO: this is very hacky, another way to do this?
+                        // Possibly have a sound ended message always send, and then consume
+                        // or only send a sound ended message when we want it.
+                        if let Ok(data) = rx.recv() {
+                            match data {
+                                Message::SoundEnded => {},
+                                message => { tx3.send(message).unwrap(); }
+                            }
+                        }
 
-                        // this rids the rx of the next value, which would always be a SoundEnded
-                        // message. It would cycle the songs, so we prevent this.
-                        // FIXME: Needs to be be at the end of this block or the tui, state, etc, don't update??
-                        rx.recv().unwrap();
                     }
                 },
                 Message::Next => {
-            
                     if state.at_playing_song && state.can_skip {
+
+                        // this triggers Message::SoundEnded when we cut the sound, cycling songs.
                         sink = add_music(sink, String::from("./music/next.mp3"), true);
                         
                         if !state.is_playing { sink.pause(); }
                         state.can_skip = false;
-                        cycle_songs(&tx1);
                         show_tui(&state);
 
-                        // this rids the rx of the next value, which would always be a SoundEnded
-                        // message. It would cycle the songs, so we prevent this.
-                        // FIXME: Needs to be be at the end of this block or the tui, state, etc, don't update??
-                        rx.recv().unwrap();
                         
-                    } else {
+                    } else if !state.at_playing_song {
                         sink = add_music(sink, String::from("./music/playing.mp3"), true);
                         if !state.is_playing { sink.pause(); }
                         state.at_playing_song = true;
                         show_tui(&state);
+
+                        sink.message_on_end();
                     }
                 },
                 Message::VolDown => {
@@ -134,13 +152,12 @@ pub fn play_music(config: Config) {
                 Message::SoundEnded => {
                     // if the music finishes without skipping
                     // this is also triggered if the user skips/prevs the track
-                    // through the cycle_songs function.
+                    // through the add_music function clearing the sink.
 
                     state.can_skip = false;
                     sink = add_music(sink, String::from("./music/next.mp3"), false);
                     
-                    cycle_songs(&tx1);
-                    sink.message_on_end(&tx2);
+                    cycle_songs(&tx1, &config.playlist);
                 }
                 _ => {},
             }
@@ -158,6 +175,7 @@ pub fn send_message(message: Message) {
 }
 
 fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
+
     let file = File::open(file_path).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
 
@@ -168,7 +186,7 @@ fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
         sink.stop();
 
         let device = rodio::default_output_device().unwrap();
-        let new_sink = LofiSink::new(&device);
+        let new_sink = LofiSink::new(&device, mpsc::Sender::clone(&sink.message_tx));
         new_sink.append(source);
 
         new_sink
@@ -181,10 +199,13 @@ fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
 }
 
 // how to do this with generics?
-fn cycle_songs(tx: &Sender<Message>) {
+fn cycle_songs(tx: &Sender<Message>, playlist: &String) {
     let tx1 = mpsc::Sender::clone(tx);
+    let playlist_duplicate = playlist.clone();
     thread::spawn(move || {
+
         Command::new("./src/cycle_songs.sh")
+        .arg(playlist_duplicate)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

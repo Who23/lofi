@@ -27,6 +27,7 @@ use crate::types::Message;
 pub struct LofiSink {
     queue_tx: Arc<queue::SourcesQueueInput<f32>>,
     sleep_until_end: Mutex<Option<Receiver<()>>>,
+    pub message_tx: Sender<Message>,
 
     controls: Arc<Controls>,
     sound_count: Arc<AtomicUsize>,
@@ -43,19 +44,20 @@ struct Controls {
 impl LofiSink {
     /// Builds a new `LofiSink`, beginning playback on a Device.
     #[inline]
-    pub fn new(device: &Device) -> LofiSink {
-        let (sink, queue_rx) = LofiSink::new_idle();
+    pub fn new(device: &Device, message_tx: Sender<Message>) -> LofiSink {
+        let (sink, queue_rx) = LofiSink::new_idle(message_tx);
         play_raw(device, queue_rx);
         sink
     }
 
     /// Builds a new `LofiSink`.
     #[inline]
-    pub fn new_idle() -> (LofiSink, queue::SourcesQueueOutput<f32>) {
+    pub fn new_idle(message_tx: Sender<Message>) -> (LofiSink, queue::SourcesQueueOutput<f32>) {
         let (queue_tx, queue_rx) = queue::queue(true);
 
         let sink = LofiSink {
-            queue_tx: queue_tx,
+            queue_tx,
+            message_tx,
             sleep_until_end: Mutex::new(None),
             controls: Arc::new(Controls {
                 pause: AtomicBool::new(false),
@@ -102,10 +104,10 @@ impl LofiSink {
     ///
     /// The value `1.0` is the "normal" volume (unfiltered input). Any value other than 1.0 will
     /// multiply each sample by this value.
-    #[inline]
-    pub fn volume(&self) -> f32 {
-        *self.controls.volume.lock().unwrap()
-    }
+    // #[inline]
+    // pub fn volume(&self) -> f32 {
+    //     *self.controls.volume.lock().unwrap()
+    // }
 
      /// Changes the volume of the sound.
      ///
@@ -163,8 +165,8 @@ impl LofiSink {
 
     /// Spawns a new thread to sleep until the sound ends, and then sends the SoundEnded
     /// message through the given Sender.
-    pub fn message_on_end(&self, tx: &Sender<Message>) {
-        let tx1 = mpsc::Sender::clone(&tx);
+    pub fn message_on_end(&self) {
+        let tx1 = mpsc::Sender::clone(&self.message_tx);
         if let Some(sleep_until_end) = self.sleep_until_end.lock().unwrap().take() {
             thread::spawn(move || {
                 let _ = sleep_until_end.recv();
