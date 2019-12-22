@@ -1,8 +1,3 @@
-// The cycling code is a dumpster fire.
-// it only message_on_end when we need it, which works
-// but it is very confusing. Mixing intercepting and only messaging sometimes
-// stick with one. Make it clear what happens.
-
 mod sink;
 mod types;
 
@@ -97,13 +92,11 @@ pub fn play_music(config: Config) {
                         state.can_skip = true;
                         show_tui(&state);
 
-                        // consume a sound ended message that follows so that it does not download a song.
+                        // consume a next message that follows so that it does not download a song.
                         // TODO: this is very hacky, another way to do this?
-                        // Possibly have a sound ended message always send, and then consume
-                        // or only send a sound ended message when we want it.
                         if let Ok(data) = rx.recv() {
                             match data {
-                                Message::SoundEnded => {},
+                                Message::Next => {},
                                 message => { tx3.send(message).unwrap(); }
                             }
                         }
@@ -120,13 +113,11 @@ pub fn play_music(config: Config) {
                         state.can_skip = false;
                         show_tui(&state);
 
-                        // consume a sound ended message that follows so that it does not download a song.
+                        // consume a next message that follows so that it does not download a song.
                         // TODO: this is very hacky, another way to do this?
-                        // Possibly have a sound ended message always send, and then consume
-                        // or only send a sound ended message when we want it.
                         if let Ok(data) = rx.recv() {
                             match data {
-                                Message::SoundEnded => {},
+                                Message::Next => {},
                                 message => { tx3.send(message).unwrap(); }
                             }
                         }
@@ -144,13 +135,11 @@ pub fn play_music(config: Config) {
 
                         show_tui(&state);
 
-                        // consume a sound ended message that follows so that it does not download a song.
+                        // consume a next message that follows so that it does not download a song.
                         // TODO: this is very hacky, another way to do this?
-                        // Possibly have a sound ended message always send, and then consume
-                        // or only send a sound ended message when we want it.
                         if let Ok(data) = rx.recv() {
                             match data {
-                                Message::SoundEnded => {},
+                                Message::Next => {},
                                 message => { tx3.send(message).unwrap(); }
                             }
                         }
@@ -176,17 +165,6 @@ pub fn play_music(config: Config) {
                 Message::Downloaded => {
                     state.can_skip = true;
                     show_tui(&state);
-                }
-                Message::SoundEnded => {
-                    // if the music finishes without skipping
-                    // this is also triggered if the user skips/prevs the track
-                    // through the add_music function clearing the sink.
-                    state.can_skip = false;
-
-                    sink = add_music(sink, String::from("./music/next.mp3"), false, &state);
-                    
-                    cycle_songs(&tx1, &config.playlist);
-                    
                 }
                 _ => {},
             }

@@ -170,7 +170,7 @@ impl LofiSink {
         if let Some(sleep_until_end) = self.sleep_until_end.lock().unwrap().take() {
             thread::spawn(move || {
                 let _ = sleep_until_end.recv();
-                tx1.send(Message::SoundEnded).unwrap();
+                tx1.send(Message::Next).unwrap();
             });
         }
     }
