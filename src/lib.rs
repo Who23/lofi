@@ -18,6 +18,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
 use std::fs::File;
+use std::path::Path;
 use std::io::{self, BufReader, Write};
 
 use crate::sink::LofiSink;
@@ -61,7 +62,7 @@ pub fn play_music(config: Config) {
         is_playing: true,
         at_playing_song: true,
         can_skip: true,
-        volume: 1.0
+        volume: 10
     };
 
     // set up user input thread
@@ -90,10 +91,10 @@ pub fn play_music(config: Config) {
                 Message::Previous => {
                     if state.at_playing_song {
 
-                        sink = add_music(sink, String::from("./music/prev.mp3"), true);
+                        sink = add_music(sink, String::from("./music/prev.mp3"), true, &state);
 
-                        if !state.is_playing { sink.pause(); }
                         state.at_playing_song = false;
+                        state.can_skip = true;
                         show_tui(&state);
 
                         // consume a sound ended message that follows so that it does not download a song.
@@ -113,35 +114,62 @@ pub fn play_music(config: Config) {
                     if state.at_playing_song && state.can_skip {
 
                         // this triggers Message::SoundEnded when we cut the sound, cycling songs.
-                        sink = add_music(sink, String::from("./music/next.mp3"), true);
+                        sink = add_music(sink, String::from("./music/next.mp3"), true, &state);
+                        cycle_songs(&tx1, &config.playlist);
                         
-                        if !state.is_playing { sink.pause(); }
                         state.can_skip = false;
                         show_tui(&state);
 
+                        // consume a sound ended message that follows so that it does not download a song.
+                        // TODO: this is very hacky, another way to do this?
+                        // Possibly have a sound ended message always send, and then consume
+                        // or only send a sound ended message when we want it.
+                        if let Ok(data) = rx.recv() {
+                            match data {
+                                Message::SoundEnded => {},
+                                message => { tx3.send(message).unwrap(); }
+                            }
+                        }
                         
                     } else if !state.at_playing_song {
-                        sink = add_music(sink, String::from("./music/playing.mp3"), true);
-                        if !state.is_playing { sink.pause(); }
+                        sink = add_music(sink, String::from("./music/playing.mp3"), true, &state);
                         state.at_playing_song = true;
+
+                        // sometimes next.mp3 is downloading so needs to check if it exists
+                        if Path::new("./music/next.mp3").exists() {
+                            state.can_skip = true;
+                        } else {
+                            state.can_skip = false;
+                        }
+
                         show_tui(&state);
 
-                        sink.message_on_end();
+                        // consume a sound ended message that follows so that it does not download a song.
+                        // TODO: this is very hacky, another way to do this?
+                        // Possibly have a sound ended message always send, and then consume
+                        // or only send a sound ended message when we want it.
+                        if let Ok(data) = rx.recv() {
+                            match data {
+                                Message::SoundEnded => {},
+                                message => { tx3.send(message).unwrap(); }
+                            }
+                        }
+
                     }
                 },
                 Message::VolDown => {
                     // obviously, there is no sound at 0.
-                    if state.volume > 0.0 {
-                        state.volume -= 0.1;
-                        sink.set_volume(state.volume);
+                    if state.volume > 0 {
+                        state.volume -= 1;
+                        sink.set_volume(state.volume as f32 / 10.0);
                         show_tui(&state);
                     }
                 }
                 Message::VolUp => {
                     // the sound gets very crackly at 1.5
-                    if state.volume < 1.4 {
-                        state.volume += 0.1;
-                        sink.set_volume(state.volume);
+                    if state.volume < 14 {
+                        state.volume += 1;
+                        sink.set_volume(state.volume as f32 / 10.0);
                         show_tui(&state);
                     }
                 }
@@ -153,11 +181,12 @@ pub fn play_music(config: Config) {
                     // if the music finishes without skipping
                     // this is also triggered if the user skips/prevs the track
                     // through the add_music function clearing the sink.
-
                     state.can_skip = false;
-                    sink = add_music(sink, String::from("./music/next.mp3"), false);
+
+                    sink = add_music(sink, String::from("./music/next.mp3"), false, &state);
                     
                     cycle_songs(&tx1, &config.playlist);
+                    
                 }
                 _ => {},
             }
@@ -174,12 +203,12 @@ pub fn send_message(message: Message) {
     socket.send(&[message.encode() as u8]).expect("couldn't send message");
 }
 
-fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
+fn add_music(sink: LofiSink, file_path: String, reset: bool, state: &State) -> LofiSink {
 
     let file = File::open(file_path).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
 
-    if reset {
+    let new_sink = if reset {
         // if a sink is stopped, it cannot be restarted
         // a new sink needs to be created in order to be usable
         // a little annoying, but it's the cleanest solution
@@ -194,7 +223,16 @@ fn add_music(sink: LofiSink, file_path: String, reset: bool) -> LofiSink {
         sink.append(source);
 
         sink
-    }
+    };
+
+    // make sure state persists through tracks
+    new_sink.message_on_end();
+    if !state.is_playing { new_sink.pause(); }
+    new_sink.set_volume(state.volume as f32 / 10.0);
+
+
+
+    new_sink
     
 }
 
@@ -222,7 +260,7 @@ fn show_tui(state: &State) {
     let prev_symbol = if state.at_playing_song { "\u{f04a}" } else { " " };
     let play_pause_symbol = if state.is_playing { "\u{f04c}" } else { "\u{f04b}" };
     let next_symbol = if state.can_skip { "\u{f04e}" } else { " " };
-    let vol_slider = format!("{}{}", "#".repeat((state.volume * 10.0) as usize), "-".repeat(14 - ((state.volume * 10.0) as usize)));
+    let vol_slider = format!("{}{}", "#".repeat(state.volume as usize), "-".repeat(14 - state.volume as usize));
 
     //print tui
     print!("\n\r");
