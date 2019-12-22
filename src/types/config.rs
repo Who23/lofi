@@ -1,4 +1,5 @@
 use std::env::{Args, self};
+use std::collections::HashMap;
 use std::fs;
 
 
@@ -14,6 +15,9 @@ pub struct Config {
 impl Config {
     pub fn new(mut args: Args) -> Result<Config, &'static str> {
 
+        // used for storiing playlist aliases
+        let mut aliases = HashMap::new();
+
         let mut config = Config {
             daemon : false,
             message : Message::NoMessage,
@@ -21,21 +25,26 @@ impl Config {
         };
 
         // get config items from config file
-        let mut home = env::home_dir().ok_or_else(|| "Could not get home directory")?;
-        home.push(".config");
-        home.push("lofi");
-        home.push("config");
+        let mut config_path = env::home_dir().ok_or_else(|| "Could not get home directory")?;
+        config_path.push(".config");
+        config_path.push("lofi");
+        config_path.push("config");
 
-        let config_file = fs::read_to_string(home).unwrap();
+        if config_path.exists() {
+            let config_file = fs::read_to_string(config_path).unwrap();
 
-        let config_file = config_file.lines()
-                                     .map(|line| line.replace(" ", ""));
+            let config_file = config_file.lines()
+                                        .map(|line| line.replace(" ", ""));
 
-        for line in config_file {
-            let line : Vec<&str> = line.split("=").collect();
-            match line[0] {
-                "playlist" => {config.playlist = String::from(line[1]);},
-                _ => (),
+            for line in config_file {
+                let line : Vec<&str> = line.split('=').collect();
+                match line[0] {
+                    "playlist" => { config.playlist = String::from(line[1]); },
+
+                    // alias name key : playlist id
+                    "alias" => { aliases.insert(line[1].to_owned(), line[2].to_owned()); }
+                    _ => (),
+                }
             }
         }
 
@@ -51,7 +60,7 @@ impl Config {
 
             match arg.unwrap().as_ref() {
                 "-d" => (config.daemon = true),
-                "-p" => (config.playlist = String::from(args.next().unwrap())),
+                "-p" => (config.playlist = args.next().unwrap()),
                 "-m" => (config.message = {
                     if let Some(message_arg) = args.next() { 
                         match message_arg.as_ref() {
@@ -74,6 +83,11 @@ impl Config {
                 },
 
             }
+        }
+
+        // if the given playlist is an alias, substitute it for the playlist id
+        if aliases.contains_key(&config.playlist) {
+            config.playlist = aliases.get(&config.playlist).unwrap().to_owned();
         }
 
         Ok(config)

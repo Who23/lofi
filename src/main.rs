@@ -4,9 +4,7 @@
 // TODO: Get name/artist from title
 // TODO: Download .wav so duration is accessible
 // TODO: Daemonize by writing .service (systemctl) and .plist (launchctl) files.
-// TODO: make sure config file exists when reading it.
 // FIXME: fix crackly volume beyond 1.4 
-// FIXME: if playing prev.mp3 the songs do not move on properly.
 
 use std::env;
 use std::process;
