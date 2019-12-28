@@ -25,8 +25,8 @@ You will have to build it from source with the given makefile:
 ## Usage
 ### Flags
 - `-p <PLAYLIST>` will play a playlist given a playlist id (gotten from `?list=<PLAYLIST>` in a youtube url) or an alias (see below)
-- `-d` will accept input from messages that lofi can run in the background
-- `-m <MESSAGE>` sends a message with the following options: 
+- `-d` will accept input from messages so that lofi can run in the background
+- `-m <MESSAGE>` sends a message with the following options (This only works when given the `-d` flag): 
   - next - skips the current song
   - previous - goes back to the previous song
   - toggle - plays/pauses the song
