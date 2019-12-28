@@ -1,5 +1,6 @@
 # lofi
 A rust project to play youtube playlists from the command line!
+
 ![a small interface](.github/sample.png)
 
 ## Description
