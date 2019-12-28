@@ -1,6 +1,5 @@
 #[derive(Debug)]
 pub enum Message {
-    SoundEnded,
     Downloaded,
     VolUp,
     VolDown,
@@ -14,7 +13,6 @@ pub enum Message {
 impl Message {
     pub fn encode(&self) -> i32 {
         match self {
-            Message::SoundEnded => 8,
             Message::Downloaded => 7,
             Message::VolUp => 6,
             Message::VolDown => 5,
@@ -28,7 +26,6 @@ impl Message {
 
     pub fn decode(number: i32) -> Message {
         match number {
-            8 => Message::SoundEnded,
             7 => Message::Downloaded,
             6 => Message::VolUp,
             5 => Message::VolDown,

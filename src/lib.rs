@@ -12,8 +12,9 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
-use std::fs::File;
-use std::path::Path;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
+use std::env;
 use std::io::{self, BufReader, Write};
 
 use crate::sink::LofiSink;
@@ -24,11 +25,20 @@ pub use crate::types::Config;
 
 pub fn run(config: Config) {
     if let Message::NoMessage = config.message {
-        // calls download.sh. See file for details.
-        Command::new("./src/download.sh")
-            .arg(&config.playlist)
-            .status()
-            .unwrap();
+
+        // downloads mp3 files if they don't exist
+        if !config.path.join("data/music/prev.mp3").exists() {
+            println!("\rDownloading missing music... (1)");
+            download_song("prev", &config.path, &config.playlist);
+        }
+        if !config.path.join("data/music/playing.mp3").exists() {
+            println!("\rDownloading missing music... (2)");
+            download_song("playing", &config.path, &config.playlist);
+        }
+        if !config.path.join("data/music/next.mp3").exists() {
+            println!("\rDownloading missing music... (3)");
+            download_song("next", &config.path, &config.playlist);
+        }
 
         play_music(config);
     } else {
@@ -48,7 +58,7 @@ pub fn play_music(config: Config) {
 
     let device = rodio::default_output_device().unwrap();
     let mut sink = LofiSink::new(&device, tx2);
-    let file = File::open("./music/playing.mp3").unwrap();
+    let file = File::open(config.path.join("data/music/playing.mp3")).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
     
     sink.append(source);
@@ -86,7 +96,7 @@ pub fn play_music(config: Config) {
                 Message::Previous => {
                     if state.at_playing_song {
 
-                        sink = add_music(sink, String::from("./music/prev.mp3"), true, &state);
+                        sink = add_music(sink, config.path.join("data/music/prev.mp3"), true, &state);
 
                         state.at_playing_song = false;
                         state.can_skip = true;
@@ -107,8 +117,8 @@ pub fn play_music(config: Config) {
                     if state.at_playing_song && state.can_skip {
 
                         // this triggers Message::SoundEnded when we cut the sound, cycling songs.
-                        sink = add_music(sink, String::from("./music/next.mp3"), true, &state);
-                        cycle_songs(&tx1, &config.playlist);
+                        sink = add_music(sink, config.path.join("data/music/next.mp3"), true, &state);
+                        cycle_songs(&tx1, &config);
                         
                         state.can_skip = false;
                         show_tui(&state);
@@ -123,11 +133,11 @@ pub fn play_music(config: Config) {
                         }
                         
                     } else if !state.at_playing_song {
-                        sink = add_music(sink, String::from("./music/playing.mp3"), true, &state);
+                        sink = add_music(sink, config.path.join("data/music/playing.mp3"), true, &state);
                         state.at_playing_song = true;
 
                         // sometimes next.mp3 is downloading so needs to check if it exists
-                        if Path::new("./music/next.mp3").exists() {
+                        if config.path.join("data/music/next.mp3").exists() {
                             state.can_skip = true;
                         } else {
                             state.can_skip = false;
@@ -181,7 +191,7 @@ pub fn send_message(message: Message) {
     socket.send(&[message.encode() as u8]).expect("couldn't send message");
 }
 
-fn add_music(sink: LofiSink, file_path: String, reset: bool, state: &State) -> LofiSink {
+fn add_music(sink: LofiSink, file_path: PathBuf, reset: bool, state: &State) -> LofiSink {
 
     let file = File::open(file_path).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
@@ -215,22 +225,34 @@ fn add_music(sink: LofiSink, file_path: String, reset: bool, state: &State) -> L
 }
 
 // how to do this with generics?
-fn cycle_songs(tx: &Sender<Message>, playlist: &String) {
+fn cycle_songs(tx: &Sender<Message>, config: &Config) {
     let tx1 = mpsc::Sender::clone(tx);
-    let playlist_duplicate = playlist.clone();
-    thread::spawn(move || {
+    let path_duplicate = config.path.clone();
+    let playlist_duplicate = config.playlist.clone();
 
-        Command::new("./src/cycle_songs.sh")
-        .arg(playlist_duplicate)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
+    thread::spawn(move || {
+        let mus_dir = path_duplicate.join("data/music");
+        let playlist = playlist_duplicate;
+
+        fs::remove_file(mus_dir.join("prev.mp3")).unwrap();
+        fs::rename(mus_dir.join("playing.mp3"), mus_dir.join("prev.mp3")).unwrap();
+        fs::rename(mus_dir.join("next.mp3"), mus_dir.join("playing.mp3")).unwrap();
+
+        download_song("next", &path_duplicate, &playlist);
 
         tx1.send(Message::Downloaded).unwrap();
     });
+}
+
+/// Downloads a song with youtube-dl
+fn download_song(name: &'static str, path: &PathBuf, playlist: &str)  {
+    let mp3_path = path.join(&format!("data/music/{}.%(ext)s", name));
+
+    Command::new("youtube-dl")
+        .args(&["-o", mp3_path.to_str().unwrap(), "--max-downloads", "1", "--yes-playlist", "--playlist-random", "-x", "--audio-format", "mp3", &format!("https://www.youtube.com/playlist?list={}", playlist.clone())])
+        .output()
+        .ok()
+        .expect("failed to download songs");
 }
 
 fn show_tui(state: &State) {

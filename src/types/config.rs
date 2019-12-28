@@ -1,5 +1,6 @@
 use std::env::{Args, self};
 use std::collections::HashMap;
+use std::path::{PathBuf, Path};
 use std::fs;
 
 
@@ -9,7 +10,8 @@ use crate::types::Message;
 pub struct Config {
     pub daemon : bool,
     pub message : Message,
-    pub playlist : String
+    pub playlist : String,
+    pub path: PathBuf
 }
 
 impl Config {
@@ -18,18 +20,18 @@ impl Config {
         // used for storiing playlist aliases
         let mut aliases = HashMap::new();
 
+        let mut path = env::home_dir().ok_or_else(|| "Could not get home directory")?;
+        path.push(".config");
+        path.push("lofi");
+
         let mut config = Config {
             daemon : false,
             message : Message::NoMessage,
-            playlist : String::from("PL6NdkXsPL07KiewBDpJC1dFvxEubnNOp1")
+            playlist : String::from("PL6NdkXsPL07KiewBDpJC1dFvxEubnNOp1"),
+            path : path
         };
 
-        // get config items from config file
-        let mut config_path = env::home_dir().ok_or_else(|| "Could not get home directory")?;
-        config_path.push(".config");
-        config_path.push("lofi");
-        config_path.push("config");
-
+        let config_path = config.path.join("config");
         if config_path.exists() {
             let config_file = fs::read_to_string(config_path).unwrap();
 
