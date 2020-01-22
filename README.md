@@ -49,5 +49,5 @@ These can be put in the config file at `~/.config/lofi/config`
 - `playlist=<PLAYLIST>` sets the default playlist given a playlist ID
 
 ## Closing
-This project isn't super polished since I made it to learn rust but I wanted to try and make it usable! Please leave any issues or suggestions if you'd like!
+This project isn't super polished since I made it to learn rust but I wanted to try and make it usable! It's pretty buggy but please leave any issues or suggestions if you'd like! 
 
